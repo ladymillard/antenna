@@ -1,406 +1,152 @@
-import { GetDashboard, GetHourlyActivity } from '../wailsjs/go/main/App';
-import Chart from 'chart.js/auto';
+// AXiom — Agents Build Their Antennas
 
-const formatCost = (cost) => {
-    if (cost === undefined || cost === null) return '$0.00';
-    return `$${cost.toFixed(2)}`;
-};
+let prevComponentCounts = {};
 
-function renderError(message) {
-    document.getElementById('app').innerHTML = `
-        <div style="display: flex; flex-direction: column; align-items: center; justify-content: center; height: 100vh; color: #666; font-family: 'JetBrains Mono', monospace;">
-            <div style="font-size: 48px; margin-bottom: 20px;">📡</div>
-            <div style="font-size: 14px; color: #888; margin-bottom: 10px;">Antenna</div>
-            <div style="font-size: 12px; color: #ff6b35; max-width: 400px; text-align: center;">${message}</div>
-            <div style="font-size: 11px; color: #444; margin-top: 20px;">
-                Looking for: ~/.openclaw/agents/main/sessions/
-            </div>
-        </div>
-    `;
+function energyColor(energy) {
+    if (energy > 0.6) return 'var(--green)';
+    if (energy > 0.3) return 'var(--orange)';
+    return 'var(--red)';
 }
 
-let dashboardInitialized = false;
-
-function updateDashboardValues(data) {
-    const sessions = data.sessions || [];
-    const active = sessions.filter(s => s.kind === 'main' && s.isActive);
-    const idle = sessions.filter(s => s.kind === 'main' && !s.isActive);
-    const subs = sessions.filter(s => s.kind === 'subagent');
-    const crons = sessions.filter(s => s.kind === 'cron');
-
-    // Update stat values
-    const updates = {
-        'stat-total-count': data.totalCount || 0,
-        'stat-active-count': active.length,
-        'stat-sub-count': subs.length,
-        'stat-cron-count': crons.length,
-        'stat-today-cost': formatCost(data.todayCost),
-        'stat-total-cost': formatCost(data.totalCost),
-    };
-    for (const [id, val] of Object.entries(updates)) {
-        const el = document.getElementById(id);
-        if (el) el.textContent = val;
-    }
-
-    // Update session rows
-    const renderRows = (items, dim) => items.map(s => `
-        <div class="row${dim ? ' dim' : ''}">
-            <span class="session-name">${s.name || 'unnamed'}</span>
-            <span class="session-id">${s.sessionId || ''}</span>
-            ${!dim ? `<span class="model">${s.model || ''}</span>` : ''}
-            <span class="msgs">${s.messageCount || 0}</span>
-            ${!dim ? `<span class="cost green">${formatCost(s.todayCost)}</span>` : ''}
-            <span class="cost">${formatCost(s.totalCost)}</span>
+function renderSignalFeed(signals) {
+    const recent = signals.slice(-8).reverse();
+    return recent.map(s => `
+        <div class="signal-item">
+            <span class="freq">${s.frequency.toFixed(2)}Hz</span>
+            <span class="msg">${s.message}</span>
         </div>
     `).join('');
-
-    const renderCards = (items) => items.length > 0 ? items.map(s => `
-        <div class="card">
-            <div class="card-header">
-                <span class="card-name">${s.name || 'unnamed'}</span>
-                ${s.isActive ? '<span class="live-dot small"></span>' : ''}
-            </div>
-            <div class="card-meta">
-                <span>${s.messageCount || 0} msgs</span>
-                <span>${formatCost(s.totalCost)}</span>
-            </div>
-        </div>
-    `).join('') : '<div class="empty">None</div>';
-
-    const el = (id) => document.getElementById(id);
-    if (el('active-rows')) el('active-rows').innerHTML = renderRows(active, false);
-    if (el('idle-rows')) el('idle-rows').innerHTML = renderRows(idle, true);
-    if (el('idle-count')) el('idle-count').textContent = idle.length;
-    if (el('sub-rows')) el('sub-rows').innerHTML = renderCards(subs);
-    if (el('sub-count')) el('sub-count').textContent = subs.length;
-    if (el('cron-rows')) el('cron-rows').innerHTML = renderCards(crons);
-    if (el('cron-count')) el('cron-count').textContent = crons.length;
-
-    // Show/hide active section
-    const activeSec = el('active-section');
-    if (activeSec) activeSec.style.display = active.length > 0 ? '' : 'none';
 }
 
-function renderDashboard(data) {
-    if (!data || !data.sessions) {
-        renderError('No data received from backend');
-        dashboardInitialized = false;
-        return;
-    }
+function renderRobot(robot) {
+    const prevCount = prevComponentCounts[robot.id] || 0;
+    const components = robot.antenna.map((c, i) => {
+        const isNew = i >= prevCount;
+        return `<div class="component ${c.kind}${isNew ? ' new' : ''}"
+                     style="--strength: ${c.strength}"
+                     title="${c.kind} | ${c.frequency.toFixed(2)}Hz | str ${(c.strength * 100).toFixed(0)}%"></div>`;
+    }).join('');
+    prevComponentCounts[robot.id] = robot.antenna.length;
 
-    // On subsequent polls, just update values — don't rebuild DOM
-    if (dashboardInitialized) {
-        updateDashboardValues(data);
-        return;
-    }
+    const signalLog = [...(robot.signals || []).slice(-5).map(s =>
+        `<div class="signal-log-entry"><span class="direction">rx</span> ${s.message} <span class="freq">${s.frequency.toFixed(2)}Hz</span></div>`
+    ), ...(robot.broadcasts || []).slice(-3).map(s =>
+        `<div class="signal-log-entry"><span class="direction out">tx</span> ${s.message} <span class="freq">${s.frequency.toFixed(2)}Hz</span></div>`
+    )].join('');
 
-    const sessions = data.sessions || [];
-    const active = sessions.filter(s => s.kind === 'main' && s.isActive);
-    const idle = sessions.filter(s => s.kind === 'main' && !s.isActive);
-    const subs = sessions.filter(s => s.kind === 'subagent');
-    const crons = sessions.filter(s => s.kind === 'cron');
-
-    if (sessions.length === 0) {
-        document.getElementById('app').innerHTML = `
-            <div style="display: flex; flex-direction: column; align-items: center; justify-content: center; height: 100vh; color: #666; font-family: 'JetBrains Mono', monospace;">
-                <div style="font-size: 48px; margin-bottom: 20px;">📡</div>
-                <div style="font-size: 14px; color: #888; margin-bottom: 10px;">Antenna</div>
-                <div style="font-size: 12px; color: #555;">No sessions found</div>
-                <div style="font-size: 11px; color: #444; margin-top: 20px;">
-                    Looking in: ~/.openclaw/agents/main/sessions/
-                </div>
+    return `
+        <div class="robot-card" data-status="${robot.status}" data-id="${robot.id}">
+            <div class="robot-header">
+                <div class="robot-name">${robot.name}</div>
+                <div class="robot-status ${robot.status}">${robot.status}</div>
             </div>
-        `;
-        return;
-    }
-
-    document.getElementById('app').innerHTML = `
-        <div class="dashboard">
-            <!-- Stats Bar -->
-            <div class="stats-bar">
-                <div class="stat-group">
-                    <span class="live-dot"></span>
-                    <span class="label">Live</span>
-                </div>
-                <div class="stat-group">
-                    <span class="stat-value big" id="stat-total-count">${data.totalCount || 0}</span>
-                    <span class="label">sessions</span>
-                </div>
-                <div class="stat-group">
-                    <span class="dot green"></span>
-                    <span class="stat-value green" id="stat-active-count">${active.length}</span>
-                    <span class="label">active</span>
-                </div>
-                <div class="stat-group">
-                    <span class="dot purple"></span>
-                    <span class="stat-value purple" id="stat-sub-count">${subs.length}</span>
-                    <span class="label">sub</span>
-                </div>
-                <div class="stat-group">
-                    <span class="dot orange"></span>
-                    <span class="stat-value orange" id="stat-cron-count">${crons.length}</span>
-                    <span class="label">cron</span>
-                </div>
-                <div class="spacer"></div>
-                <div class="cost-group">
-                    <div class="cost-label">Today</div>
-                    <div class="cost-value green" id="stat-today-cost">${formatCost(data.todayCost)}</div>
-                </div>
-                <div class="cost-group">
-                    <div class="cost-label">Total</div>
-                    <div class="cost-value" id="stat-total-cost">${formatCost(data.totalCost)}</div>
-                </div>
+            <div class="energy-bar">
+                <div class="energy-fill" style="width: ${robot.energy * 100}%; background: ${energyColor(robot.energy)}"></div>
             </div>
-
-            <!-- Activity Chart -->
-            <div class="chart-container">
-                <canvas id="activityChart"></canvas>
-            </div>
-
-            <!-- Main Grid -->
-            <div class="grid">
-                <!-- Left Panel -->
-                <div class="left-panel">
-                    <div class="section active-section" id="active-section" style="${active.length > 0 ? '' : 'display:none'}">
-                        <div class="section-header">
-                            <span class="live-dot small"></span>
-                            <span class="section-title green">Active</span>
-                        </div>
-                        <div class="rows" id="active-rows">
-                            ${active.map(s => `
-                            <div class="row">
-                                <span class="session-name">${s.name || 'unnamed'}</span>
-                                <span class="session-id">${s.sessionId || ''}</span>
-                                <span class="model">${s.model || ''}</span>
-                                <span class="msgs">${s.messageCount || 0}</span>
-                                <span class="cost green">${formatCost(s.todayCost)}</span>
-                                <span class="cost">${formatCost(s.totalCost)}</span>
-                            </div>
-                            `).join('')}
-                        </div>
-                    </div>
-                    
-                    <div class="section idle-section">
-                        <div class="section-header">
-                            <span class="idle-dot"></span>
-                            <span class="section-title gray">Idle</span>
-                            <span class="count" id="idle-count">${idle.length}</span>
-                        </div>
-                        <div class="rows scrollable" id="idle-rows">
-                            ${idle.map(s => `
-                            <div class="row dim">
-                                <span class="session-name">${s.name || 'unnamed'}</span>
-                                <span class="session-id">${s.sessionId || ''}</span>
-                                <span class="msgs">${s.messageCount || 0}</span>
-                                <span class="cost">${formatCost(s.totalCost)}</span>
-                            </div>
-                            `).join('')}
-                        </div>
-                    </div>
+            <div class="antenna-section">
+                <div class="antenna-label">
+                    <span>antenna</span>
+                    <span class="antenna-count">${robot.antenna.length} parts</span>
                 </div>
-
-                <!-- Right Panel -->
-                <div class="right-panel">
-                    <div class="section sub-section">
-                        <div class="section-header">
-                            <span class="icon">⚡</span>
-                            <span class="section-title purple">Sub-agents</span>
-                            <span class="count purple" id="sub-count">${subs.length}</span>
-                        </div>
-                        <div class="rows scrollable" id="sub-rows">
-                            ${subs.length > 0 ? subs.map(s => `
-                            <div class="card">
-                                <div class="card-header">
-                                    <span class="card-name">${s.name || 'unnamed'}</span>
-                                    ${s.isActive ? '<span class="live-dot small"></span>' : ''}
-                                </div>
-                                <div class="card-meta">
-                                    <span>${s.messageCount || 0} msgs</span>
-                                    <span>${formatCost(s.totalCost)}</span>
-                                </div>
-                            </div>
-                            `).join('') : '<div class="empty">None</div>'}
-                        </div>
-                    </div>
-
-                    <div class="section cron-section">
-                        <div class="section-header">
-                            <span class="icon">⏱</span>
-                            <span class="section-title orange">Cron</span>
-                            <span class="count orange" id="cron-count">${crons.length}</span>
-                        </div>
-                        <div class="rows scrollable" id="cron-rows">
-                            ${crons.length > 0 ? crons.map(s => `
-                            <div class="card">
-                                <div class="card-header">
-                                    <span class="card-name">${s.name || 'unnamed'}</span>
-                                    ${s.isActive ? '<span class="live-dot small"></span>' : ''}
-                                </div>
-                                <div class="card-meta">
-                                    <span>${s.messageCount || 0} msgs</span>
-                                    <span>${formatCost(s.totalCost)}</span>
-                                </div>
-                            </div>
-                            `).join('') : '<div class="empty">None</div>'}
-                        </div>
-                    </div>
-                </div>
+                <div class="antenna-vis">${components || '<span style="color: #333; font-size: 10px;">no components yet</span>'}</div>
             </div>
+            <div class="robot-stats">
+                <div class="robot-stat">rx <span class="value">${(robot.signals || []).length}</span></div>
+                <div class="robot-stat">tx <span class="value">${(robot.broadcasts || []).length}</span></div>
+                <div class="robot-stat">bw <span class="value">${bandwidth(robot)}</span></div>
+            </div>
+            ${signalLog ? `<div class="signal-log">${signalLog}</div>` : ''}
         </div>
     `;
-
-    dashboardInitialized = true;
 }
 
-let activityChart = null;
-
-function renderActivityChart(data) {
-    const canvas = document.getElementById('activityChart');
-    if (!canvas) return;
-    const ctx = canvas.getContext('2d');
-
-    const labels = data.map(b => b.hour);
-    const messages = data.map(b => b.messages);
-    const costs = data.map(b => Math.round(b.cost * 100) / 100);
-
-    if (activityChart) {
-        activityChart.data.labels = labels;
-        activityChart.data.datasets[0].data = messages;
-        activityChart.data.datasets[1].data = costs;
-        activityChart.update('none');
-        return;
+function bandwidth(robot) {
+    if (!robot.antenna || robot.antenna.length === 0) return '0.00';
+    let min = Infinity, max = -Infinity;
+    for (const c of robot.antenna) {
+        if (c.frequency < min) min = c.frequency;
+        if (c.frequency > max) max = c.frequency;
     }
+    return (max - min).toFixed(2);
+}
 
-    activityChart = new Chart(ctx, {
-        type: 'bar',
-        data: {
-            labels,
-            datasets: [
-                {
-                    label: 'Messages',
-                    data: messages,
-                    backgroundColor: 'rgba(0, 255, 136, 0.3)',
-                    borderColor: 'rgba(0, 255, 136, 0.8)',
-                    borderWidth: 1,
-                    borderRadius: 2,
-                    yAxisID: 'y',
-                    order: 2,
-                },
-                {
-                    label: 'Cost ($)',
-                    data: costs,
-                    type: 'line',
-                    borderColor: 'rgba(168, 85, 247, 0.9)',
-                    backgroundColor: 'rgba(168, 85, 247, 0.1)',
-                    borderWidth: 2,
-                    pointRadius: 0,
-                    pointHoverRadius: 4,
-                    pointHoverBackgroundColor: '#a855f7',
-                    fill: true,
-                    tension: 0.4,
-                    yAxisID: 'y1',
-                    order: 1,
-                }
-            ]
-        },
-        options: {
-            responsive: true,
-            maintainAspectRatio: false,
-            interaction: {
-                mode: 'index',
-                intersect: false,
-            },
-            plugins: {
-                legend: {
-                    display: true,
-                    position: 'top',
-                    align: 'end',
-                    labels: {
-                        color: '#555',
-                        font: { family: "'JetBrains Mono', monospace", size: 10 },
-                        boxWidth: 12,
-                        boxHeight: 2,
-                        padding: 12,
-                    }
-                },
-                tooltip: {
-                    backgroundColor: '#111',
-                    borderColor: '#1a1a1a',
-                    borderWidth: 1,
-                    titleFont: { family: "'JetBrains Mono', monospace", size: 11 },
-                    bodyFont: { family: "'JetBrains Mono', monospace", size: 11 },
-                    titleColor: '#888',
-                    bodyColor: '#ccc',
-                    padding: 10,
-                    displayColors: true,
-                    callbacks: {
-                        label: function(ctx) {
-                            if (ctx.dataset.label === 'Cost ($)') {
-                                return ` Cost: $${ctx.parsed.y.toFixed(2)}`;
-                            }
-                            return ` Messages: ${ctx.parsed.y}`;
-                        }
-                    }
-                }
-            },
-            scales: {
-                x: {
-                    grid: { color: 'rgba(255,255,255,0.03)', drawBorder: false },
-                    ticks: {
-                        color: '#333',
-                        font: { family: "'JetBrains Mono', monospace", size: 9 },
-                        maxRotation: 0,
-                        callback: function(val, idx) {
-                            return idx % 3 === 0 ? this.getLabelForValue(val) : '';
-                        }
-                    },
-                    border: { display: false },
-                },
-                y: {
-                    position: 'left',
-                    grid: { color: 'rgba(0, 255, 136, 0.04)', drawBorder: false },
-                    ticks: {
-                        color: 'rgba(0, 255, 136, 0.4)',
-                        font: { family: "'JetBrains Mono', monospace", size: 9 },
-                        stepSize: 1,
-                    },
-                    border: { display: false },
-                    title: { display: false },
-                },
-                y1: {
-                    position: 'right',
-                    grid: { display: false },
-                    ticks: {
-                        color: 'rgba(168, 85, 247, 0.4)',
-                        font: { family: "'JetBrains Mono', monospace", size: 9 },
-                        callback: (v) => '$' + v.toFixed(2),
-                    },
-                    border: { display: false },
-                    title: { display: false },
-                }
-            }
-        }
-    });
+function render(robots, stats, signals) {
+    const app = document.getElementById('app');
+
+    const robotCards = robots
+        .sort((a, b) => {
+            // Active first, then by antenna size
+            const statusOrder = { building: 0, broadcasting: 1, listening: 2, idle: 3 };
+            const aOrder = statusOrder[a.status] ?? 3;
+            const bOrder = statusOrder[b.status] ?? 3;
+            if (aOrder !== bOrder) return aOrder - bOrder;
+            return b.antenna.length - a.antenna.length;
+        })
+        .map(renderRobot)
+        .join('');
+
+    app.innerHTML = `
+        <div class="header">
+            <div class="header-left">
+                <div class="logo">A<span>X</span>iom</div>
+                <div class="tagline">Agents build their antennas</div>
+            </div>
+            <div class="header-right">
+                <div class="stat-pill">
+                    <div class="dot" style="background: var(--green)"></div>
+                    <span class="value">${stats.totalRobots}</span>
+                    <span class="label">robots</span>
+                </div>
+                <div class="stat-pill">
+                    <div class="dot" style="background: var(--purple)"></div>
+                    <span class="value">${stats.totalComponents}</span>
+                    <span class="label">parts</span>
+                </div>
+                <div class="stat-pill">
+                    <div class="dot" style="background: var(--cyan)"></div>
+                    <span class="value">${stats.totalSignals}</span>
+                    <span class="label">signals</span>
+                </div>
+                <button class="spawn-btn" onclick="spawnRobot()">+ Spawn</button>
+            </div>
+        </div>
+        <div class="signal-feed">
+            <span class="signal-feed-label">Live</span>
+            <div class="signal-feed-items">${renderSignalFeed(signals)}</div>
+        </div>
+        <div class="main-grid">${robotCards}</div>
+        <div class="legend">
+            <div class="legend-item"><div class="legend-swatch" style="background: rgba(0,255,153,0.3)"></div> Receiver</div>
+            <div class="legend-item"><div class="legend-swatch" style="background: rgba(191,111,255,0.3)"></div> Transmitter</div>
+            <div class="legend-item"><div class="legend-swatch" style="background: rgba(255,140,76,0.3)"></div> Amplifier</div>
+            <div class="legend-item"><div class="legend-swatch" style="background: rgba(68,136,255,0.3)"></div> Filter</div>
+            <div class="legend-item"><div class="legend-swatch" style="background: rgba(255,204,0,0.3)"></div> Resonator</div>
+        </div>
+    `;
 }
 
 async function refresh() {
     try {
-        const data = await GetDashboard();
-        renderDashboard(data);
-        try {
-            const hourly = await GetHourlyActivity();
-            renderActivityChart(hourly);
-        } catch (e) {
-            console.error('Failed to get hourly activity:', e);
-        }
+        const [robots, stats, signals] = await Promise.all([
+            fetch('/api/robots').then(r => r.json()),
+            fetch('/api/academy').then(r => r.json()),
+            fetch('/api/signals').then(r => r.json()),
+        ]);
+        render(robots, stats, signals);
     } catch (e) {
-        console.error('Failed to get dashboard:', e);
-        renderError(`Error: ${e.message || e}`);
+        console.error('Failed to refresh:', e);
     }
 }
 
-// Initial load
-refresh();
+window.spawnRobot = async function() {
+    try {
+        await fetch('/api/robots/spawn', { method: 'POST' });
+        refresh();
+    } catch (e) {
+        console.error('Failed to spawn:', e);
+    }
+};
 
-// Auto-refresh every 5 seconds
-setInterval(refresh, 5000);
+// Boot
+refresh();
+setInterval(refresh, 2000);

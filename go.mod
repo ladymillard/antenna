@@ -1,5 +1,3 @@
-module github.com/Caryyon/antenna
+module github.com/ladymillard/antenna
 
 go 1.22
-
-require github.com/wailsapp/wails/v2 v2.9.0

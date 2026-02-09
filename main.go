@@ -2,75 +2,38 @@ package main
 
 import (
 	"embed"
-
-	"github.com/wailsapp/wails/v2"
-	"github.com/wailsapp/wails/v2/pkg/menu"
-	"github.com/wailsapp/wails/v2/pkg/menu/keys"
-	"github.com/wailsapp/wails/v2/pkg/options"
-	"github.com/wailsapp/wails/v2/pkg/options/assetserver"
-	"github.com/wailsapp/wails/v2/pkg/options/mac"
-	"github.com/wailsapp/wails/v2/pkg/runtime"
+	"fmt"
+	"io/fs"
+	"log"
+	"net/http"
 )
 
-//go:embed all:frontend/dist
-var assets embed.FS
+//go:embed frontend/dist/*
+var frontendDist embed.FS
 
 func main() {
-	app := NewApp()
+	academy := NewAcademy()
 
-	// Create menu
-	appMenu := menu.NewMenu()
+	// API routes
+	http.HandleFunc("/api/robots", academy.HandleRobots)
+	http.HandleFunc("/api/robots/spawn", academy.HandleSpawnRobot)
+	http.HandleFunc("/api/academy", academy.HandleAcademy)
+	http.HandleFunc("/api/signals", academy.HandleSignals)
 
-	// App menu (macOS)
-	appMenu.Append(menu.AppMenu())
-
-	// File menu
-	fileMenu := appMenu.AddSubmenu("File")
-	fileMenu.AddText("Refresh", keys.CmdOrCtrl("r"), func(_ *menu.CallbackData) {
-		runtime.EventsEmit(app.ctx, "refresh")
-	})
-	fileMenu.AddSeparator()
-	fileMenu.AddText("Close Window", keys.CmdOrCtrl("w"), func(_ *menu.CallbackData) {
-		runtime.Quit(app.ctx)
-	})
-
-	// Help menu
-	helpMenu := appMenu.AddSubmenu("Help")
-	helpMenu.AddText("GitHub Repository", nil, func(_ *menu.CallbackData) {
-		runtime.BrowserOpenURL(app.ctx, "https://github.com/Caryyon/antenna")
-	})
-	helpMenu.AddText("Report Issue", nil, func(_ *menu.CallbackData) {
-		runtime.BrowserOpenURL(app.ctx, "https://github.com/Caryyon/antenna/issues")
-	})
-	helpMenu.AddSeparator()
-	helpMenu.AddText("OpenClaw Documentation", nil, func(_ *menu.CallbackData) {
-		runtime.BrowserOpenURL(app.ctx, "https://docs.openclaw.ai")
-	})
-
-	err := wails.Run(&options.App{
-		Title:     "Antenna",
-		Width:     1200,
-		Height:    700,
-		MinWidth:  800,
-		MinHeight: 500,
-		Menu:      appMenu,
-		AssetServer: &assetserver.Options{
-			Assets: assets,
-		},
-		BackgroundColour: &options.RGBA{R: 5, G: 5, B: 5, A: 1},
-		OnStartup:        app.startup,
-		Bind: []interface{}{
-			app,
-		},
-		Mac: &mac.Options{
-			About: &mac.AboutInfo{
-				Title:   "Antenna",
-				Message: "OpenClaw Session Monitor\n\nVersion 1.0.2\n\nhttps://github.com/Caryyon/antenna\n\n© 2026 Cary Wolff",
-			},
-		},
-	})
-
+	// Serve frontend
+	distFS, err := fs.Sub(frontendDist, "frontend/dist")
 	if err != nil {
-		println("Error:", err.Error())
+		log.Fatal(err)
 	}
+	http.Handle("/", http.FileServer(http.FS(distFS)))
+
+	port := 3210
+	fmt.Printf("\n  ╔══════════════════════════════════════╗\n")
+	fmt.Printf("  ║         A X i o m                    ║\n")
+	fmt.Printf("  ║    Agents build their antennas.      ║\n")
+	fmt.Printf("  ╠══════════════════════════════════════╣\n")
+	fmt.Printf("  ║  → http://localhost:%d              ║\n", port)
+	fmt.Printf("  ╚══════════════════════════════════════╝\n\n")
+
+	log.Fatal(http.ListenAndServe(fmt.Sprintf(":%d", port), nil))
 }
