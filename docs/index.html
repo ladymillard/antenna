@@ -1,0 +1,486 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>AXiom — Agents Build Their Antennas</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;700&display=swap" rel="stylesheet">
+    <style>
+        :root {
+            --void: #050505;
+            --panel: #0a0a0a;
+            --surface: #111;
+            --border: #1a1a1a;
+            --green: #00ff99;
+            --cyan: #00ffd5;
+            --purple: #bf6fff;
+            --orange: #ff8c4c;
+            --red: #ff4477;
+            --blue: #4488ff;
+            --yellow: #ffcc00;
+        }
+
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+
+        body {
+            font-family: 'JetBrains Mono', monospace;
+            background: var(--void);
+            color: #bbb;
+            min-height: 100vh;
+        }
+
+        #app { min-height: 100vh; }
+
+        .loading {
+            display: flex; align-items: center; justify-content: center;
+            height: 100vh; color: #333; font-size: 14px;
+        }
+
+        /* Header */
+        .header {
+            display: flex; align-items: center; justify-content: space-between;
+            padding: 16px 24px; border-bottom: 1px solid var(--border);
+            flex-wrap: wrap; gap: 12px;
+        }
+        .header-left { display: flex; align-items: center; gap: 16px; }
+        .logo { font-size: 20px; font-weight: 700; color: white; letter-spacing: 6px; text-transform: uppercase; }
+        .logo span { color: var(--green); text-shadow: 0 0 20px rgba(0,255,153,0.5); }
+        .tagline { font-size: 10px; color: #555; letter-spacing: 1px; }
+        .header-right { display: flex; align-items: center; gap: 14px; flex-wrap: wrap; }
+
+        .stat-pill {
+            display: flex; align-items: center; gap: 6px;
+            padding: 5px 12px; background: var(--surface);
+            border: 1px solid var(--border); border-radius: 20px;
+        }
+        .stat-pill .value { font-weight: 700; font-size: 13px; color: white; }
+        .stat-pill .label { font-size: 8px; text-transform: uppercase; letter-spacing: 1px; color: #666; }
+        .stat-pill .dot { width: 6px; height: 6px; border-radius: 50%; }
+
+        .spawn-btn {
+            padding: 7px 16px; background: transparent;
+            border: 1px solid var(--green); color: var(--green);
+            font-family: 'JetBrains Mono', monospace; font-size: 10px;
+            font-weight: 700; letter-spacing: 2px; text-transform: uppercase;
+            cursor: pointer; border-radius: 4px; transition: all 0.2s;
+        }
+        .spawn-btn:hover {
+            background: var(--green); color: var(--void);
+            box-shadow: 0 0 20px rgba(0,255,153,0.3);
+        }
+
+        /* Signal Feed */
+        .signal-feed {
+            padding: 6px 24px; border-bottom: 1px solid var(--border);
+            height: 32px; overflow: hidden;
+            display: flex; align-items: center; gap: 12px;
+        }
+        .signal-feed-label {
+            font-size: 8px; text-transform: uppercase; letter-spacing: 2px;
+            color: #444; flex-shrink: 0;
+        }
+        .signal-feed-items { display: flex; gap: 20px; overflow: hidden; flex: 1; }
+        .signal-item {
+            font-size: 10px; color: #555; white-space: nowrap;
+            display: flex; align-items: center; gap: 6px;
+        }
+        .signal-item .freq { color: var(--cyan); font-size: 9px; }
+        .signal-item .msg { color: #777; }
+
+        /* Main Grid */
+        .main-grid {
+            display: grid; grid-template-columns: repeat(auto-fill, minmax(320px, 1fr));
+            gap: 1px; background: var(--border);
+        }
+
+        .robot-card {
+            background: var(--void); padding: 18px;
+            display: flex; flex-direction: column; gap: 14px;
+            transition: background 0.2s; position: relative; overflow: hidden;
+        }
+        .robot-card:hover { background: #080808; }
+
+        .robot-card::before {
+            content: ''; position: absolute; left: 0; top: 0; bottom: 0; width: 2px;
+        }
+        .robot-card[data-status="building"]::before { background: var(--green); box-shadow: 0 0 8px rgba(0,255,153,0.4); }
+        .robot-card[data-status="listening"]::before { background: var(--cyan); box-shadow: 0 0 8px rgba(0,255,213,0.4); }
+        .robot-card[data-status="broadcasting"]::before { background: var(--purple); box-shadow: 0 0 8px rgba(191,111,255,0.4); }
+        .robot-card[data-status="idle"]::before { background: #333; }
+
+        .robot-header { display: flex; align-items: center; justify-content: space-between; }
+        .robot-name { font-size: 15px; font-weight: 700; color: white; }
+
+        .robot-status {
+            font-size: 8px; text-transform: uppercase; letter-spacing: 2px;
+            padding: 3px 10px; border-radius: 10px; border: 1px solid;
+        }
+        .robot-status.building { color: var(--green); border-color: rgba(0,255,153,0.3); }
+        .robot-status.listening { color: var(--cyan); border-color: rgba(0,255,213,0.3); }
+        .robot-status.broadcasting { color: var(--purple); border-color: rgba(191,111,255,0.3); }
+        .robot-status.idle { color: #555; border-color: #333; }
+
+        .energy-bar { height: 3px; background: #111; border-radius: 2px; overflow: hidden; }
+        .energy-fill { height: 100%; border-radius: 2px; transition: width 0.5s ease, background 0.3s; }
+
+        .antenna-section { flex: 1; }
+        .antenna-label {
+            font-size: 8px; text-transform: uppercase; letter-spacing: 2px;
+            color: #444; margin-bottom: 8px;
+            display: flex; align-items: center; justify-content: space-between;
+        }
+        .antenna-count { color: #666; font-size: 10px; }
+        .antenna-vis { display: flex; flex-wrap: wrap; gap: 3px; }
+
+        .component {
+            width: 18px; height: 18px; border-radius: 3px; position: relative;
+            transition: all 0.3s; cursor: default;
+        }
+        .component:hover { transform: scale(1.3); z-index: 1; }
+
+        .component.receiver { background: rgba(0,255,153,0.15); border: 1px solid rgba(0,255,153,0.3); }
+        .component.transmitter { background: rgba(191,111,255,0.15); border: 1px solid rgba(191,111,255,0.3); }
+        .component.amplifier { background: rgba(255,140,76,0.15); border: 1px solid rgba(255,140,76,0.3); }
+        .component.filter { background: rgba(68,136,255,0.15); border: 1px solid rgba(68,136,255,0.3); }
+        .component.resonator { background: rgba(255,204,0,0.15); border: 1px solid rgba(255,204,0,0.3); }
+
+        .component::after {
+            content: ''; position: absolute; inset: 3px; border-radius: 2px;
+            opacity: var(--strength, 0.5);
+        }
+        .component.receiver::after { background: var(--green); }
+        .component.transmitter::after { background: var(--purple); }
+        .component.amplifier::after { background: var(--orange); }
+        .component.filter::after { background: var(--blue); }
+        .component.resonator::after { background: var(--yellow); }
+
+        .robot-stats { display: flex; gap: 14px; font-size: 10px; }
+        .robot-stat { display: flex; align-items: center; gap: 4px; color: #555; }
+        .robot-stat .value { color: #888; font-weight: 500; }
+
+        .signal-log {
+            max-height: 68px; overflow-y: auto;
+            display: flex; flex-direction: column; gap: 2px;
+        }
+        .signal-log::-webkit-scrollbar { width: 3px; }
+        .signal-log::-webkit-scrollbar-thumb { background: #222; border-radius: 2px; }
+        .signal-log-entry { font-size: 9px; color: #444; display: flex; gap: 8px; }
+        .signal-log-entry .direction { color: var(--cyan); }
+        .signal-log-entry .direction.out { color: var(--purple); }
+
+        .legend {
+            display: flex; gap: 14px; padding: 10px 24px;
+            border-top: 1px solid var(--border); background: var(--panel);
+            flex-wrap: wrap;
+        }
+        .legend-item {
+            display: flex; align-items: center; gap: 6px;
+            font-size: 8px; color: #555; letter-spacing: 1px; text-transform: uppercase;
+        }
+        .legend-swatch { width: 10px; height: 10px; border-radius: 2px; }
+
+        @keyframes componentAppear {
+            from { transform: scale(0); opacity: 0; }
+            to { transform: scale(1); opacity: 1; }
+        }
+        .component.new { animation: componentAppear 0.3s ease-out; }
+
+        @keyframes statusPulse {
+            0%, 100% { opacity: 1; }
+            50% { opacity: 0.5; }
+        }
+        .robot-status.building,
+        .robot-status.listening,
+        .robot-status.broadcasting { animation: statusPulse 2s ease-in-out infinite; }
+
+        @media (max-width: 700px) {
+            .header { padding: 12px 16px; }
+            .signal-feed { padding: 6px 16px; }
+            .robot-card { padding: 14px; }
+            .legend { padding: 8px 16px; }
+            .main-grid { grid-template-columns: 1fr; }
+        }
+    </style>
+</head>
+<body>
+    <div id="app"><div class="loading">Tuning in...</div></div>
+
+    <script>
+    // ═══════════════════════════════════════════════
+    //  AXiom — Agents Build Their Antennas
+    //  Simulation runs entirely in the browser.
+    // ═══════════════════════════════════════════════
+
+    const ROBOT_NAMES = [
+        'Ohm','Volt','Flux','Pulse','Wave','Echo','Spark','Drift','Hum','Arc',
+        'Coil','Beam','Chirp','Ring','Node','Sync','Phase','Loop','Core','Shard'
+    ];
+    const COMPONENT_KINDS = ['receiver','transmitter','amplifier','filter','resonator'];
+    const MESSAGES = [
+        'ping','hello','ack','ready','sync','found','lost','here','seek','build',
+        'tune','hear','reach','grow','adapt'
+    ];
+
+    function randomID() {
+        const c = 'abcdefghijklmnopqrstuvwxyz0123456789';
+        let s = '';
+        for (let i = 0; i < 8; i++) s += c[Math.floor(Math.random() * c.length)];
+        return s;
+    }
+
+    function pick(arr) { return arr[Math.floor(Math.random() * arr.length)]; }
+
+    // ─── Simulation State ───
+    const state = {
+        robots: {},
+        signals: [],
+        tick: 0,
+    };
+
+    function spawnRobot() {
+        const id = randomID();
+        let name = pick(ROBOT_NAMES);
+        const existing = Object.values(state.robots).filter(r => r.name.startsWith(name));
+        if (existing.length > 0) name = name + '-' + (existing.length + 1);
+
+        state.robots[id] = {
+            id, name,
+            antenna: [],
+            signals: [],
+            broadcasts: [],
+            spawnedAt: Date.now(),
+            lastActive: Date.now(),
+            energy: 1.0,
+            status: 'building',
+        };
+        return state.robots[id];
+    }
+
+    function receptionStrength(robot, freq) {
+        let best = 0;
+        for (const c of robot.antenna) {
+            if (c.kind === 'receiver' || c.kind === 'resonator') {
+                const dist = Math.abs(c.frequency - freq);
+                const sensitivity = c.strength * Math.exp(-dist * dist / 0.1);
+                if (sensitivity > best) best = sensitivity;
+            }
+        }
+        for (const c of robot.antenna) {
+            if (c.kind === 'amplifier') best *= (1.0 + c.strength * 0.5);
+        }
+        return Math.min(best, 1.0);
+    }
+
+    function bandwidth(robot) {
+        if (robot.antenna.length === 0) return 0;
+        let min = Infinity, max = -Infinity;
+        for (const c of robot.antenna) {
+            if (c.frequency < min) min = c.frequency;
+            if (c.frequency > max) max = c.frequency;
+        }
+        return max - min;
+    }
+
+    function simulate() {
+        state.tick++;
+        const now = Date.now();
+
+        for (const robot of Object.values(state.robots)) {
+            if (robot.energy <= 0) {
+                robot.status = 'idle';
+                robot.energy = Math.min(robot.energy + 0.05, 1.0);
+                continue;
+            }
+
+            const action = Math.random();
+
+            if (action < 0.4) {
+                // BUILD
+                robot.status = 'building';
+                robot.antenna.push({
+                    id: randomID(),
+                    kind: pick(COMPONENT_KINDS),
+                    frequency: Math.round(Math.random() * 100) / 100,
+                    strength: Math.round((0.3 + Math.random() * 0.7) * 100) / 100,
+                    builtAt: now,
+                });
+                robot.energy -= 0.08;
+                robot.lastActive = now;
+
+            } else if (action < 0.6) {
+                // BROADCAST
+                if (robot.antenna.length > 0) {
+                    robot.status = 'broadcasting';
+                    let freq = Math.random();
+                    for (const c of robot.antenna) {
+                        if (c.kind === 'transmitter') { freq = c.frequency; break; }
+                    }
+                    const sig = {
+                        id: randomID(),
+                        frequency: freq,
+                        message: pick(MESSAGES),
+                        origin: robot.id,
+                        strength: Math.round((0.5 + Math.random() * 0.5) * 100) / 100,
+                        timestamp: now,
+                    };
+                    robot.broadcasts.push(sig);
+                    if (robot.broadcasts.length > 20) robot.broadcasts = robot.broadcasts.slice(-20);
+                    state.signals.push(sig);
+                    robot.energy -= 0.05;
+                    robot.lastActive = now;
+                }
+
+            } else if (action < 0.85) {
+                // LISTEN
+                if (robot.antenna.length > 0) {
+                    robot.status = 'listening';
+                    const start = Math.max(0, state.signals.length - 10);
+                    for (let i = state.signals.length - 1; i >= start; i--) {
+                        const sig = state.signals[i];
+                        if (sig.origin === robot.id) continue;
+                        const reception = receptionStrength(robot, sig.frequency);
+                        if (reception > 0.2) {
+                            robot.signals.push({ ...sig, strength: Math.round(reception * 100) / 100 });
+                            if (robot.signals.length > 20) robot.signals = robot.signals.slice(-20);
+                        }
+                    }
+                    robot.energy -= 0.03;
+                    robot.lastActive = now;
+                }
+
+            } else {
+                // REST
+                robot.status = 'idle';
+                robot.energy = Math.min(robot.energy + 0.1, 1.0);
+            }
+
+            if (robot.energy < 0) robot.energy = 0;
+        }
+
+        if (state.signals.length > 100) state.signals = state.signals.slice(-100);
+    }
+
+    // ─── Rendering ───
+    let prevComponentCounts = {};
+
+    function energyColor(e) {
+        if (e > 0.6) return 'var(--green)';
+        if (e > 0.3) return 'var(--orange)';
+        return 'var(--red)';
+    }
+
+    function renderRobot(robot) {
+        const prev = prevComponentCounts[robot.id] || 0;
+        const components = robot.antenna.map((c, i) => {
+            const isNew = i >= prev;
+            return `<div class="component ${c.kind}${isNew ? ' new' : ''}"
+                style="--strength: ${c.strength}"
+                title="${c.kind} | ${c.frequency.toFixed(2)}Hz | str ${(c.strength*100).toFixed(0)}%"></div>`;
+        }).join('');
+        prevComponentCounts[robot.id] = robot.antenna.length;
+
+        const log = [
+            ...robot.signals.slice(-5).map(s =>
+                `<div class="signal-log-entry"><span class="direction">rx</span> ${s.message} <span class="freq">${s.frequency.toFixed(2)}Hz</span></div>`),
+            ...robot.broadcasts.slice(-3).map(s =>
+                `<div class="signal-log-entry"><span class="direction out">tx</span> ${s.message} <span class="freq">${s.frequency.toFixed(2)}Hz</span></div>`),
+        ].join('');
+
+        const bw = bandwidth(robot).toFixed(2);
+
+        return `
+        <div class="robot-card" data-status="${robot.status}">
+            <div class="robot-header">
+                <div class="robot-name">${robot.name}</div>
+                <div class="robot-status ${robot.status}">${robot.status}</div>
+            </div>
+            <div class="energy-bar">
+                <div class="energy-fill" style="width:${robot.energy*100}%;background:${energyColor(robot.energy)}"></div>
+            </div>
+            <div class="antenna-section">
+                <div class="antenna-label">
+                    <span>antenna</span>
+                    <span class="antenna-count">${robot.antenna.length} parts</span>
+                </div>
+                <div class="antenna-vis">${components || '<span style="color:#333;font-size:10px">no components yet</span>'}</div>
+            </div>
+            <div class="robot-stats">
+                <div class="robot-stat">rx <span class="value">${robot.signals.length}</span></div>
+                <div class="robot-stat">tx <span class="value">${robot.broadcasts.length}</span></div>
+                <div class="robot-stat">bw <span class="value">${bw}</span></div>
+            </div>
+            ${log ? `<div class="signal-log">${log}</div>` : ''}
+        </div>`;
+    }
+
+    function render() {
+        const robots = Object.values(state.robots).sort((a, b) => {
+            const order = { building: 0, broadcasting: 1, listening: 2, idle: 3 };
+            const d = (order[a.status] ?? 3) - (order[b.status] ?? 3);
+            if (d !== 0) return d;
+            return b.antenna.length - a.antenna.length;
+        });
+
+        let totalComponents = 0;
+        let activeCount = 0;
+        for (const r of robots) {
+            totalComponents += r.antenna.length;
+            if (r.status !== 'idle') activeCount++;
+        }
+
+        const recentSignals = state.signals.slice(-8).reverse().map(s =>
+            `<div class="signal-item"><span class="freq">${s.frequency.toFixed(2)}Hz</span><span class="msg">${s.message}</span></div>`
+        ).join('');
+
+        document.getElementById('app').innerHTML = `
+        <div class="header">
+            <div class="header-left">
+                <div class="logo">A<span>X</span>iom</div>
+                <div class="tagline">Agents build their antennas</div>
+            </div>
+            <div class="header-right">
+                <div class="stat-pill">
+                    <div class="dot" style="background:var(--green)"></div>
+                    <span class="value">${robots.length}</span>
+                    <span class="label">robots</span>
+                </div>
+                <div class="stat-pill">
+                    <div class="dot" style="background:var(--purple)"></div>
+                    <span class="value">${totalComponents}</span>
+                    <span class="label">parts</span>
+                </div>
+                <div class="stat-pill">
+                    <div class="dot" style="background:var(--cyan)"></div>
+                    <span class="value">${state.signals.length}</span>
+                    <span class="label">signals</span>
+                </div>
+                <button class="spawn-btn" id="spawn-btn">+ Spawn</button>
+            </div>
+        </div>
+        <div class="signal-feed">
+            <span class="signal-feed-label">Live</span>
+            <div class="signal-feed-items">${recentSignals}</div>
+        </div>
+        <div class="main-grid">${robots.map(renderRobot).join('')}</div>
+        <div class="legend">
+            <div class="legend-item"><div class="legend-swatch" style="background:rgba(0,255,153,0.3)"></div> Receiver</div>
+            <div class="legend-item"><div class="legend-swatch" style="background:rgba(191,111,255,0.3)"></div> Transmitter</div>
+            <div class="legend-item"><div class="legend-swatch" style="background:rgba(255,140,76,0.3)"></div> Amplifier</div>
+            <div class="legend-item"><div class="legend-swatch" style="background:rgba(68,136,255,0.3)"></div> Filter</div>
+            <div class="legend-item"><div class="legend-swatch" style="background:rgba(255,204,0,0.3)"></div> Resonator</div>
+        </div>`;
+
+        document.getElementById('spawn-btn').addEventListener('click', () => { spawnRobot(); render(); });
+    }
+
+    // ─── Boot ───
+    spawnRobot();
+    spawnRobot();
+    spawnRobot();
+
+    render();
+    setInterval(() => { simulate(); render(); }, 2000);
+    </script>
+</body>
+</html>
