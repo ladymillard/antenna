@@ -363,6 +363,81 @@ body {
     color: #666;
 }
 
+/* Unauthorized */
+.dot.red { background: var(--red); }
+.stat-value.red { color: var(--red); text-shadow: 0 0 12px rgba(255, 68, 119, 0.4); }
+.section-title.red { color: var(--red); }
+.count.red { color: rgba(255, 68, 119, 0.7); }
+
+.unauthorized-section {
+    border-left: 2px solid var(--red);
+    box-shadow: inset 2px 0 8px -4px rgba(255, 68, 119, 0.3);
+    min-height: 0;
+}
+
+.unauthorized-row {
+    background: rgba(255, 68, 119, 0.03);
+}
+
+.unauthorized-row:hover {
+    background: rgba(255, 68, 119, 0.06);
+}
+
+.unauthorized-name {
+    color: var(--red) !important;
+}
+
+.kind-badge {
+    font-size: 9px;
+    text-transform: uppercase;
+    letter-spacing: 1px;
+    color: #666;
+    padding: 2px 6px;
+    border: 1px solid #333;
+    border-radius: 3px;
+}
+
+.disconnect-btn {
+    background: rgba(255, 68, 119, 0.15);
+    color: var(--red);
+    border: 1px solid rgba(255, 68, 119, 0.3);
+    padding: 4px 12px;
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 10px;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 1px;
+    border-radius: 3px;
+    cursor: pointer;
+    transition: all 0.15s;
+}
+
+.disconnect-btn:hover {
+    background: rgba(255, 68, 119, 0.25);
+    border-color: var(--red);
+    box-shadow: 0 0 12px rgba(255, 68, 119, 0.2);
+}
+
+.authorize-btn {
+    background: rgba(0, 255, 153, 0.1);
+    color: var(--green);
+    border: 1px solid rgba(0, 255, 153, 0.2);
+    padding: 2px 8px;
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 9px;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 1px;
+    border-radius: 3px;
+    cursor: pointer;
+    transition: all 0.15s;
+}
+
+.authorize-btn:hover {
+    background: rgba(0, 255, 153, 0.2);
+    border-color: var(--green);
+}
+
 .empty {
     padding: 32px 16px;
     text-align: center;

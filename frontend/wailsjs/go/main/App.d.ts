@@ -5,3 +5,9 @@ import {main} from '../models';
 export function GetDashboard():Promise<main.DashboardData>;
 
 export function GetHourlyActivity():Promise<Array<main.HourlyBucket>>;
+
+export function AuthorizeSession(sessionID:string):Promise<boolean>;
+
+export function DeauthorizeSession(sessionID:string):Promise<boolean>;
+
+export function DisconnectUnauthorized():Promise<number>;

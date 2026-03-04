@@ -13,3 +13,18 @@ export function GetHourlyActivity() {
   if (isBrowser) return fetch('/api/hourly').then(r => r.json());
   return window['go']['main']['App']['GetHourlyActivity']();
 }
+
+export function AuthorizeSession(sessionID) {
+  if (isBrowser) return fetch('/api/authorize', { method: 'POST', body: JSON.stringify({ sessionId: sessionID }) }).then(r => r.json());
+  return window['go']['main']['App']['AuthorizeSession'](sessionID);
+}
+
+export function DeauthorizeSession(sessionID) {
+  if (isBrowser) return fetch('/api/deauthorize', { method: 'POST', body: JSON.stringify({ sessionId: sessionID }) }).then(r => r.json());
+  return window['go']['main']['App']['DeauthorizeSession'](sessionID);
+}
+
+export function DisconnectUnauthorized() {
+  if (isBrowser) return fetch('/api/disconnect-unauthorized', { method: 'POST' }).then(r => r.json());
+  return window['go']['main']['App']['DisconnectUnauthorized']();
+}

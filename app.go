@@ -39,6 +39,7 @@ type Session struct {
 	TodayCost    float64 `json:"todayCost"`
 	UpdatedAt    int64   `json:"updatedAt"`
 	IsActive     bool    `json:"isActive"`
+	IsAuthorized bool    `json:"isAuthorized"`
 }
 
 // DashboardData is the full dashboard response
@@ -125,6 +126,7 @@ func (a *App) loadCronJobNames() map[string]string {
 func (a *App) loadSessions() []Session {
 	var sessions []Session
 	cronNames := a.loadCronJobNames()
+	allowed := a.loadAllowedSessions()
 	
 	// Load sessions.json for metadata
 	sessionsFile := filepath.Join(a.openclawDir, "agents", "main", "sessions", "sessions.json")
@@ -210,7 +212,10 @@ func (a *App) loadSessions() []Session {
 		
 		// Parse transcript for costs
 		a.parseSessionCost(sessionID, &s, today)
-		
+
+		// Check authorization
+		s.IsAuthorized = allowed[sessionID]
+
 		sessions = append(sessions, s)
 	}
 	
@@ -297,6 +302,101 @@ func (a *App) GetHourlyActivity() []HourlyBucket {
 	}
 
 	return buckets
+}
+
+// loadAllowedSessions reads the set of permitted session IDs from the allowlist file
+func (a *App) loadAllowedSessions() map[string]bool {
+	allowed := make(map[string]bool)
+	path := filepath.Join(a.openclawDir, "antenna", "allowed_sessions.json")
+	data, err := os.ReadFile(path)
+	if err != nil {
+		return allowed
+	}
+	var ids []string
+	if err := json.Unmarshal(data, &ids); err != nil {
+		return allowed
+	}
+	for _, id := range ids {
+		allowed[id] = true
+	}
+	return allowed
+}
+
+// saveAllowedSessions persists the set of permitted session IDs
+func (a *App) saveAllowedSessions(allowed map[string]bool) error {
+	dir := filepath.Join(a.openclawDir, "antenna")
+	if err := os.MkdirAll(dir, 0755); err != nil {
+		return err
+	}
+	var ids []string
+	for id := range allowed {
+		ids = append(ids, id)
+	}
+	sort.Strings(ids)
+	data, err := json.MarshalIndent(ids, "", "  ")
+	if err != nil {
+		return err
+	}
+	return os.WriteFile(filepath.Join(dir, "allowed_sessions.json"), data, 0644)
+}
+
+// AuthorizeSession adds a session ID to the allowlist
+func (a *App) AuthorizeSession(sessionID string) bool {
+	allowed := a.loadAllowedSessions()
+	allowed[sessionID] = true
+	return a.saveAllowedSessions(allowed) == nil
+}
+
+// DeauthorizeSession removes a session ID from the allowlist
+func (a *App) DeauthorizeSession(sessionID string) bool {
+	allowed := a.loadAllowedSessions()
+	delete(allowed, sessionID)
+	return a.saveAllowedSessions(allowed) == nil
+}
+
+// DisconnectUnauthorized removes all session files and metadata entries for sessions
+// that are not in the allowlist. Returns the number of sessions disconnected.
+func (a *App) DisconnectUnauthorized() int {
+	allowed := a.loadAllowedSessions()
+	sessions := a.loadSessions()
+
+	disconnected := 0
+	sessionsDir := filepath.Join(a.openclawDir, "agents", "main", "sessions")
+
+	// Load sessions.json to remove entries
+	sessionsFile := filepath.Join(sessionsDir, "sessions.json")
+	var sessionMeta sessionsJSON
+	if data, err := os.ReadFile(sessionsFile); err == nil {
+		json.Unmarshal(data, &sessionMeta)
+	}
+
+	metaChanged := false
+	for _, s := range sessions {
+		if allowed[s.SessionID] {
+			continue
+		}
+		// Remove the .jsonl transcript file
+		jsonlPath := filepath.Join(sessionsDir, s.SessionID+".jsonl")
+		if err := os.Remove(jsonlPath); err == nil {
+			disconnected++
+		}
+		// Remove from sessions.json metadata
+		for key, entry := range sessionMeta {
+			if entry.SessionID == s.SessionID {
+				delete(sessionMeta, key)
+				metaChanged = true
+			}
+		}
+	}
+
+	// Persist updated sessions.json
+	if metaChanged {
+		if data, err := json.MarshalIndent(sessionMeta, "", "  "); err == nil {
+			os.WriteFile(sessionsFile, data, 0644)
+		}
+	}
+
+	return disconnected
 }
 
 func (a *App) parseSessionCost(sessionID string, s *Session, today time.Time) {

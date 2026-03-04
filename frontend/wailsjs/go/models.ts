@@ -10,11 +10,12 @@ export namespace main {
 	    todayCost: number;
 	    updatedAt: number;
 	    isActive: boolean;
-	
+	    isAuthorized: boolean;
+
 	    static createFrom(source: any = {}) {
 	        return new Session(source);
 	    }
-	
+
 	    constructor(source: any = {}) {
 	        if ('string' === typeof source) source = JSON.parse(source);
 	        this.sessionId = source["sessionId"];
@@ -26,6 +27,7 @@ export namespace main {
 	        this.todayCost = source["todayCost"];
 	        this.updatedAt = source["updatedAt"];
 	        this.isActive = source["isActive"];
+	        this.isAuthorized = source["isAuthorized"];
 	    }
 	}
 	export class DashboardData {

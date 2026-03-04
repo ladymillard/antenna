@@ -1,4 +1,4 @@
-import { GetDashboard, GetHourlyActivity } from '../wailsjs/go/main/App';
+import { GetDashboard, GetHourlyActivity, AuthorizeSession, DeauthorizeSession, DisconnectUnauthorized } from '../wailsjs/go/main/App';
 import Chart from 'chart.js/auto';
 
 const formatCost = (cost) => {
@@ -23,10 +23,12 @@ let dashboardInitialized = false;
 
 function updateDashboardValues(data) {
     const sessions = data.sessions || [];
-    const active = sessions.filter(s => s.kind === 'main' && s.isActive);
-    const idle = sessions.filter(s => s.kind === 'main' && !s.isActive);
-    const subs = sessions.filter(s => s.kind === 'subagent');
-    const crons = sessions.filter(s => s.kind === 'cron');
+    const unauthorized = sessions.filter(s => !s.isAuthorized);
+    const authorized = sessions.filter(s => s.isAuthorized);
+    const active = authorized.filter(s => s.kind === 'main' && s.isActive);
+    const idle = authorized.filter(s => s.kind === 'main' && !s.isActive);
+    const subs = authorized.filter(s => s.kind === 'subagent');
+    const crons = authorized.filter(s => s.kind === 'cron');
 
     // Update stat values
     const updates = {
@@ -34,6 +36,7 @@ function updateDashboardValues(data) {
         'stat-active-count': active.length,
         'stat-sub-count': subs.length,
         'stat-cron-count': crons.length,
+        'stat-unauthorized-count': unauthorized.length,
         'stat-today-cost': formatCost(data.todayCost),
         'stat-total-cost': formatCost(data.totalCost),
     };
@@ -67,6 +70,17 @@ function updateDashboardValues(data) {
         </div>
     `).join('') : '<div class="empty">None</div>';
 
+    const renderUnauthorizedRows = (items) => items.length > 0 ? items.map(s => `
+        <div class="row unauthorized-row">
+            <span class="session-name unauthorized-name">${s.name || 'unnamed'}</span>
+            <span class="session-id">${s.sessionId || ''}</span>
+            <span class="kind-badge">${s.kind}</span>
+            <span class="msgs">${s.messageCount || 0}</span>
+            <span class="cost">${formatCost(s.totalCost)}</span>
+            <button class="authorize-btn" data-session-id="${s.sessionId}">Permit</button>
+        </div>
+    `).join('') : '<div class="empty">All sessions authorized</div>';
+
     const el = (id) => document.getElementById(id);
     if (el('active-rows')) el('active-rows').innerHTML = renderRows(active, false);
     if (el('idle-rows')) el('idle-rows').innerHTML = renderRows(idle, true);
@@ -75,10 +89,20 @@ function updateDashboardValues(data) {
     if (el('sub-count')) el('sub-count').textContent = subs.length;
     if (el('cron-rows')) el('cron-rows').innerHTML = renderCards(crons);
     if (el('cron-count')) el('cron-count').textContent = crons.length;
+    if (el('unauthorized-rows')) el('unauthorized-rows').innerHTML = renderUnauthorizedRows(unauthorized);
+    if (el('unauthorized-count')) el('unauthorized-count').textContent = unauthorized.length;
 
     // Show/hide active section
     const activeSec = el('active-section');
     if (activeSec) activeSec.style.display = active.length > 0 ? '' : 'none';
+
+    // Show/hide unauthorized section
+    const unauthSec = el('unauthorized-section');
+    if (unauthSec) unauthSec.style.display = unauthorized.length > 0 ? '' : 'none';
+
+    // Rebind authorize buttons
+    bindAuthorizeButtons();
+    bindDisconnectButton();
 }
 
 function renderDashboard(data) {
@@ -95,10 +119,12 @@ function renderDashboard(data) {
     }
 
     const sessions = data.sessions || [];
-    const active = sessions.filter(s => s.kind === 'main' && s.isActive);
-    const idle = sessions.filter(s => s.kind === 'main' && !s.isActive);
-    const subs = sessions.filter(s => s.kind === 'subagent');
-    const crons = sessions.filter(s => s.kind === 'cron');
+    const unauthorized = sessions.filter(s => !s.isAuthorized);
+    const authorized = sessions.filter(s => s.isAuthorized);
+    const active = authorized.filter(s => s.kind === 'main' && s.isActive);
+    const idle = authorized.filter(s => s.kind === 'main' && !s.isActive);
+    const subs = authorized.filter(s => s.kind === 'subagent');
+    const crons = authorized.filter(s => s.kind === 'cron');
 
     if (sessions.length === 0) {
         document.getElementById('app').innerHTML = `
@@ -140,6 +166,11 @@ function renderDashboard(data) {
                     <span class="dot orange"></span>
                     <span class="stat-value orange" id="stat-cron-count">${crons.length}</span>
                     <span class="label">cron</span>
+                </div>
+                <div class="stat-group" style="${unauthorized.length > 0 ? '' : 'display:none'}">
+                    <span class="dot red"></span>
+                    <span class="stat-value red" id="stat-unauthorized-count">${unauthorized.length}</span>
+                    <span class="label">unauthorized</span>
                 </div>
                 <div class="spacer"></div>
                 <div class="cost-group">
@@ -201,6 +232,28 @@ function renderDashboard(data) {
 
                 <!-- Right Panel -->
                 <div class="right-panel">
+                    <div class="section unauthorized-section" id="unauthorized-section" style="${unauthorized.length > 0 ? '' : 'display:none'}">
+                        <div class="section-header">
+                            <span class="icon">&#x26A0;</span>
+                            <span class="section-title red">Unauthorized</span>
+                            <span class="count red" id="unauthorized-count">${unauthorized.length}</span>
+                            <div class="spacer"></div>
+                            <button class="disconnect-btn" id="disconnect-unauthorized-btn">Disconnect All</button>
+                        </div>
+                        <div class="rows scrollable" id="unauthorized-rows">
+                            ${unauthorized.length > 0 ? unauthorized.map(s => `
+                            <div class="row unauthorized-row">
+                                <span class="session-name unauthorized-name">${s.name || 'unnamed'}</span>
+                                <span class="session-id">${s.sessionId || ''}</span>
+                                <span class="kind-badge">${s.kind}</span>
+                                <span class="msgs">${s.messageCount || 0}</span>
+                                <span class="cost">${formatCost(s.totalCost)}</span>
+                                <button class="authorize-btn" data-session-id="${s.sessionId}">Permit</button>
+                            </div>
+                            `).join('') : '<div class="empty">All sessions authorized</div>'}
+                        </div>
+                    </div>
+
                     <div class="section sub-section">
                         <div class="section-header">
                             <span class="icon">⚡</span>
@@ -250,6 +303,34 @@ function renderDashboard(data) {
     `;
 
     dashboardInitialized = true;
+
+    // Bind event handlers for authorization controls
+    bindAuthorizeButtons();
+    bindDisconnectButton();
+}
+
+function bindAuthorizeButtons() {
+    document.querySelectorAll('.authorize-btn').forEach(btn => {
+        btn.onclick = async () => {
+            const sessionId = btn.getAttribute('data-session-id');
+            if (sessionId) {
+                await AuthorizeSession(sessionId);
+                refresh();
+            }
+        };
+    });
+}
+
+function bindDisconnectButton() {
+    const btn = document.getElementById('disconnect-unauthorized-btn');
+    if (btn) {
+        btn.onclick = async () => {
+            const count = await DisconnectUnauthorized();
+            if (count > 0) {
+                refresh();
+            }
+        };
+    }
 }
 
 let activityChart = null;
